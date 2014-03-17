@@ -279,13 +279,22 @@ function Server(options) {
     if (!(this instanceof Server)) return new Server(options);
 
     this.addresses = {};
-    this.filters = (options && options.filters) || {};
+    this.filters = {};
     this.cache = !! options.cache;
 
-    if(options && options.addresses) {
+    if (options && options.addresses) {
         for (var address in options.addresses) {
             this.addresses[address] = {
-              "address": options.addresses[address]
+                "address": options.addresses[address]
+            }
+        }
+    }
+
+    if (options && options.filters) {
+        for (var filter in options.filters) {
+            this.filters[filter] = {
+                "regexp": (new RegExp(filter)),
+                "address": options.filters[filter]
             }
         }
     }
@@ -314,7 +323,7 @@ function serverMessageHandler(buf, rinfo) {
     var self = this,
         msg = new Message(buf),
         queries, length, index, item, domains, domain,
-        addresses, address, answers, info, filters, filter, regtest;
+        addresses, address, answers, info, filters, filter;
 
     if (msg.isAnswer() || msg.opcode() != 0) return;
 
@@ -349,9 +358,8 @@ function serverMessageHandler(buf, rinfo) {
         //lets check the filters
         else {
             for (filter in filters) {
-                regtest = new RegExp(filter);
-                if(regtest.test(domain)) {
-                    address = filters[filter];
+                if(filters[filter]["regexp"].test(domain)) {
+                    address = filters[filter]["address"];
                     if(pushAnswer(domain, address)) {
                         onresolve();
                         break;
