@@ -278,9 +278,17 @@ var responseBuffer = null;
 function Server(options) {
     if (!(this instanceof Server)) return new Server(options);
 
-    this.addresses = (options && options.addresses) || {};
+    this.addresses = {};
     this.filters = (options && options.filters) || {};
     this.cache = !! options.cache;
+
+    if(options && options.addresses) {
+        for (var address in options.addresses) {
+            this.addresses[address] = {
+              "address": options.addresses[address]
+            }
+        }
+    }
 
     dgram.Socket.call(this, "udp4", serverMessageHandler);
 }
@@ -327,18 +335,17 @@ function serverMessageHandler(buf, rinfo) {
     length = index = domains.length;
     while (index--) {
         domain = domains[index];
-        //TODO:
-        //check cache first
 
-        //first check if we have a direct match
+        //check if we have a direct match
         if (addresses.hasOwnProperty(domain)) {
-            address = addresses[domain];
+            address = addresses[domain]["address"];
             //address = (address == "localhost" ? rinfo.address : (address == "proxyhost" ? info.address : address));
             if (pushAnswer(domain, address)) {
                 onresolve();
                 continue;
             }
         }
+
         //lets check the filters
         else {
             for (filter in filters) {
@@ -372,9 +379,11 @@ function serverMessageHandler(buf, rinfo) {
     function resolve(domain) {
         dns.lookup(domain, 4, function(err, address, family) {
             if (!err && family == 4) {
-                //nothing is actually getting done with this
                 if (self.cache) {
-                    self.addresses[domain] = address;
+                    self.addresses[domain] = {
+                      "address": address,
+                      "time": (new Date).getTime()
+                    };
                 }
                 pushAnswer(domain, address);
             }
@@ -408,7 +417,5 @@ exports.Server = Server;
 
 /*
 TODO:
-Finish implementing cache
-Add timestamp property to each cache item
 Add a method that runs once every 5 minutes and checks what cache should be removed
 */

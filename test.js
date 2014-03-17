@@ -2,6 +2,7 @@ var proxy = require("./proxy.js");
 
 proxy.createServer({
     addresses: {
+      "roflware.com": "123.234.123.234"
     },
     filters: {
         "/*.docker.digital8.com.au/": "10.20.0.10",
