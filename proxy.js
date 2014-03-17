@@ -25,15 +25,15 @@ var DNS_DEFAULT_TTL = 0,
     DNS_MESSAGE_TYPE_A = 0x0001,
     DNS_MESSAGE_CLASS_IN = 0x0001;
 
-function debug() { // {{{
+function debug() {
     return console.log.apply(console, toArray(arguments));
 }
 
 function toArray(list) {
     return [].slice.call(list, 0);
-} // }}}
+}
 
-function Message(buf) { // {{{
+function Message(buf) {
     if (Buffer.isBuffer(buf)) {
         this.parseFromBuffer(buf);
     } else {
@@ -44,9 +44,9 @@ function Message(buf) { // {{{
         this.authoritativeNameservers = [];
         this.additionalRecords = [];
     }
-} // }}}
+}
 
-function readDomainName(buf, offset) { //{{{
+function readDomainName(buf, offset) {
     var length, ret = [],
         next = false;
 
@@ -66,9 +66,9 @@ function readDomainName(buf, offset) { //{{{
         name: ret.join("."),
         next: (next === false ? offset : next)
     };
-} // }}}
+}
 
-function readQueryPackage(buf, offset) { //{{{
+function readQueryPackage(buf, offset) {
     var name, type, klass,
         info;
 
@@ -90,9 +90,9 @@ function readQueryPackage(buf, offset) { //{{{
         },
         next: offset
     };
-} // }}}
+}
 
-function readAnswerPackage(buf, offset) { //{{{
+function readAnswerPackage(buf, offset) {
     var ttl, len, rdata,
         info, data;
     info = readQueryPackage(buf, offset);
@@ -118,9 +118,9 @@ function readAnswerPackage(buf, offset) { //{{{
         },
         next: offset
     };
-} // }}}
+}
 
-function readPackages(buf, offset, count, callback) { // {{{
+function readPackages(buf, offset, count, callback) {
     //debug("readPackages(<buffer>, " + '0x' + offset.toString(16) + ", " + count + ", <callback>)");
     var data = [],
         info;
@@ -134,9 +134,9 @@ function readPackages(buf, offset, count, callback) { // {{{
         data: data,
         next: offset
     };
-} // }}}
+}
 
-Message.prototype.parseFromBuffer = function(buf) { // {{{
+Message.prototype.parseFromBuffer = function(buf) {
     var qdCount, anCount, nsCount, arCount,
         offset, info,
         qName, qType, qClass;
@@ -165,11 +165,11 @@ Message.prototype.parseFromBuffer = function(buf) { // {{{
     info = readPackages(buf, offset, arCount, readAnswerPackage);
     offset = info.next;
     this.additionalRecords = info.data;
-}; // }}}
+};
 
 var domainMap;
 
-function writeDomainName(buf, name, offset) { //{{{
+function writeDomainName(buf, name, offset) {
     var items, length, index, item, len;
     if (domainMap.hasOwnProperty(name)) {
         index = domainMap[name];
@@ -194,9 +194,9 @@ function writeDomainName(buf, name, offset) { //{{{
         offset++;
     }
     return offset;
-} // }}}
+}
 
-function writeQueryPackage(buf, pkg, offset) { // {{{
+function writeQueryPackage(buf, pkg, offset) {
     offset = writeDomainName(buf, pkg.name, offset);
 
     buf.writeUInt16BE(pkg.type, offset);
@@ -206,9 +206,9 @@ function writeQueryPackage(buf, pkg, offset) { // {{{
     offset += 2;
 
     return offset;
-} // }}}
+}
 
-function writeAnswerPackage(buf, pkg, offset) { // {{{
+function writeAnswerPackage(buf, pkg, offset) {
     var length;
     offset = writeQueryPackage(buf, pkg, offset);
 
@@ -221,9 +221,9 @@ function writeAnswerPackage(buf, pkg, offset) { // {{{
     offset += length;
 
     return offset;
-} // }}}
+}
 
-function writePackages(buf, packages, offset, callback) { //{{{
+function writePackages(buf, packages, offset, callback) {
     var length = packages.length,
         index, pkg;
     for (index = 0; index < length; index++) {
@@ -231,9 +231,9 @@ function writePackages(buf, packages, offset, callback) { //{{{
         offset = callback(buf, pkg, offset);
     }
     return offset;
-} // }}}
+}
 
-Message.prototype.fillBuffer = function(buf) { // {{{
+Message.prototype.fillBuffer = function(buf) {
     var offset,
         qdCount, anCount, nsCount, arCount;
 
@@ -259,38 +259,39 @@ Message.prototype.fillBuffer = function(buf) { // {{{
     offset = writePackages(buf, this.additionalRecords, offset, writeAnswerPackage);
 
     return offset;
-}; // }}}
+};
 
-Message.prototype.testFlags = function(mask) { // {{{
+Message.prototype.testFlags = function(mask) {
     return (this.flags & mask) == mask;
-}; // }}}
+};
 
-Message.prototype.isAnswer = function() { // {{{
+Message.prototype.isAnswer = function() {
     return this.testFlags(DNS_MESSAGE_FLAG_QR);
-}; // }}}
+};
 
-Message.prototype.opcode = function() { // {{{
+Message.prototype.opcode = function() {
     return (this.flags & DNS_MESSAGE_FLAG_OPCODE) >> 11;
-}; // }}}
+};
 
 var responseBuffer = null;
 
-function Server(options) { // {{{
+function Server(options) {
     if (!(this instanceof Server)) return new Server(options);
 
     this.addresses = (options && options.addresses) || {};
+    this.filters = (options && options.filters) || {};
     this.cache = !! options.cache;
 
     dgram.Socket.call(this, "udp4", serverMessageHandler);
 }
 util.inherits(Server, dgram.Socket);
 
-Server.prototype.start = function( /*address, callback*/ ) {
+Server.prototype.start = function() {
     responseBuffer = responseBuffer || new Buffer(DNS_BUFFER_SIZE);
     this.bind.apply(this, [DNS_SERVER_PORT].concat(Array.prototype.slice.call(arguments, 0)));
-}; // }}}
+};
 
-function encodeAddress(address) { // {{{
+function encodeAddress(address) {
     var i;
     address = address.split(".");
     if (address.length < 4) return false;
@@ -299,15 +300,15 @@ function encodeAddress(address) { // {{{
         responseBuffer[i] = parseInt(address[i]);
     }
     return responseBuffer.toString("base64", 0, 4);
-} // }}}
+}
 
-function serverMessageHandler(buf, rinfo) { // {{{
+function serverMessageHandler(buf, rinfo) {
     var self = this,
         msg = new Message(buf),
         queries, length, index, item, domains, domain,
-        addresses, address, answers, info;
+        addresses, address, answers, info, filters, filter, regtest;
 
-    if (msg.isAnswer() || msg.opcode() != 0) return; // 非标准查询请求
+    if (msg.isAnswer() || msg.opcode() != 0) return;
 
     queries = msg.queries;
     length = queries.length;
@@ -315,22 +316,40 @@ function serverMessageHandler(buf, rinfo) { // {{{
 
     for (index = 0; index < length; index++) {
         item = queries[index];
-        if (item.type != DNS_MESSAGE_TYPE_A || item.klass != DNS_MESSAGE_CLASS_IN) return; //非A记录查询
+        if (item.type != DNS_MESSAGE_TYPE_A || item.klass != DNS_MESSAGE_CLASS_IN) return;
         domains.push(item.name);
     }
 
     info = this.address();
     addresses = this.addresses;
+    filters = this.filters;
     answers = [];
     length = index = domains.length;
     while (index--) {
         domain = domains[index];
-        if (addresses.hasOwnProperty(domain)) { //尝试直接回复
+        //TODO:
+        //check cache first
+
+        //first check if we have a direct match
+        if (addresses.hasOwnProperty(domain)) {
             address = addresses[domain];
-            address = (address == "localhost" ? rinfo.address : (address == "proxyhost" ? info.address : address));
+            //address = (address == "localhost" ? rinfo.address : (address == "proxyhost" ? info.address : address));
             if (pushAnswer(domain, address)) {
                 onresolve();
                 continue;
+            }
+        }
+        //lets check the filters
+        else {
+            for (filter in filters) {
+                regtest = new RegExp(filter);
+                if(regtest.test(domain)) {
+                    address = filters[filter];
+                    if(pushAnswer(domain, address)) {
+                        onresolve();
+                        break;
+                    }
+                }
             }
         }
         resolve(domain);
@@ -353,6 +372,7 @@ function serverMessageHandler(buf, rinfo) { // {{{
     function resolve(domain) {
         dns.lookup(domain, 4, function(err, address, family) {
             if (!err && family == 4) {
+                //nothing is actually getting done with this
                 if (self.cache) {
                     self.addresses[domain] = address;
                 }
@@ -378,11 +398,17 @@ function serverMessageHandler(buf, rinfo) { // {{{
         length = msg.fillBuffer(responseBuffer);
         self.send(responseBuffer, 0, length, rinfo.port, rinfo.address);
     }
-} // }}}
+}
 
 exports.createServer = function(options) {
     return Server(options);
 };
 
 exports.Server = Server;
-// vim600: sw=4 ts=4 fdm=marker syn=javascript
+
+/*
+TODO:
+Finish implementing cache
+Add timestamp property to each cache item
+Add a method that runs once every 5 minutes and checks what cache should be removed
+*/
