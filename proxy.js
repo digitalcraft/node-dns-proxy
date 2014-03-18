@@ -1,4 +1,35 @@
 'use strict';
+
+var redis = require("redis");
+var fakeredis = require("fakeredis");
+var cache = redis.createClient();
+
+cache.on("error", function (err) {
+    console.log("Error " + err);
+    console.log("Falling back to fakeredis");
+    cache.end();
+    cache = fakeredis.createClient();
+    ready();
+});
+
+var ready = function (err) {
+    console.log("Cache Ready!");
+}
+
+cache.on("ready", ready);
+
+if (typeof String.prototype.startsWith != 'function') {
+    String.prototype.startsWith = function(prefix) {
+        return this.slice(0, prefix.length) == prefix;
+    };
+}
+ 
+if (typeof String.prototype.endsWith != 'function') {
+    String.prototype.endsWith = function(suffix) {
+        return this.slice(-suffix.length) == suffix;
+    };
+}
+
 var dgram = require("dgram"),
     dns = require("dns"),
     util = require("util");
@@ -23,7 +54,8 @@ var DNS_DEFAULT_TTL = 0,
     DNS_MESSAGE_FLAG_RA = 0x01 << 7,
     DNS_MESSAGE_FLAG_RCODE = 0x0F << 0,
     DNS_MESSAGE_TYPE_A = 0x0001,
-    DNS_MESSAGE_CLASS_IN = 0x0001;
+    DNS_MESSAGE_CLASS_IN = 0x0001,
+    DNS_TTL = 14400;
 
 function debug() {
     return console.log.apply(console, toArray(arguments));
@@ -278,26 +310,18 @@ var responseBuffer = null;
 function Server(options) {
     if (!(this instanceof Server)) return new Server(options);
 
-    this.addresses = {};
-    this.filters = {};
+    //this.addresses = {};
+    this.filters = (options && options.filters) || {};
     this.cache = !! options.cache;
 
-    if (options && options.addresses) {
-        for (var address in options.addresses) {
-            this.addresses[address] = {
-                "address": options.addresses[address]
+    //wait for redis
+    setTimeout(function() {
+        if (options && options.addresses) {
+            for (var address in options.addresses) {
+                cache.setex(address, DNS_TTL, options.addresses[address]);
             }
         }
-    }
-
-    if (options && options.filters) {
-        for (var filter in options.filters) {
-            this.filters[filter] = {
-                "regexp": (new RegExp(filter)),
-                "address": options.filters[filter]
-            }
-        }
-    }
+    }, 1000);
 
     dgram.Socket.call(this, "udp4", serverMessageHandler);
 }
@@ -323,7 +347,7 @@ function serverMessageHandler(buf, rinfo) {
     var self = this,
         msg = new Message(buf),
         queries, length, index, item, domains, domain,
-        addresses, address, answers, info, filters, filter;
+        address, answers, filters, filter;
 
     if (msg.isAnswer() || msg.opcode() != 0) return;
 
@@ -337,8 +361,8 @@ function serverMessageHandler(buf, rinfo) {
         domains.push(item.name);
     }
 
-    info = this.address();
-    addresses = this.addresses;
+    //info = this.address();
+    //addresses = this.addresses;
     filters = this.filters;
     answers = [];
     length = index = domains.length;
@@ -346,28 +370,44 @@ function serverMessageHandler(buf, rinfo) {
         domain = domains[index];
 
         //check if we have a direct match
+        /*
         if (addresses.hasOwnProperty(domain)) {
             address = addresses[domain]["address"];
-            //address = (address == "localhost" ? rinfo.address : (address == "proxyhost" ? info.address : address));
             if (pushAnswer(domain, address)) {
                 onresolve();
                 continue;
             }
         }
+        */
 
-        //lets check the filters
-        else {
-            for (filter in filters) {
-                if(filters[filter]["regexp"].test(domain)) {
-                    address = filters[filter]["address"];
-                    if(pushAnswer(domain, address)) {
-                        onresolve();
-                        break;
+        cache.get(domain, function(err, address) {
+            if (address) {
+                //console.log("cache hit");
+                if (pushAnswer(domain, address)) {
+                    onresolve();
+                    return;
+                }
+            }
+        
+            //lets check the filters
+            else {
+                for (filter in filters) {
+                    if(domain.endsWith(filter)) {
+                        //console.log("string match");
+                        address = filters[filter];
+                        if(pushAnswer(domain, address)) {
+                            onresolve();
+                            return;//break;
+                        }
                     }
                 }
             }
-        }
-        resolve(domain);
+
+            //otherwise do a dns lookup
+            //console.log("lookup");
+            resolve(domain);
+
+        });
     }
 
     function pushAnswer(domain, address) {
@@ -388,10 +428,11 @@ function serverMessageHandler(buf, rinfo) {
         dns.lookup(domain, 4, function(err, address, family) {
             if (!err && family == 4) {
                 if (self.cache) {
-                    self.addresses[domain] = {
+                    /*self.addresses[domain] = {
                       "address": address,
                       "time": (new Date).getTime()
-                    };
+                    };*/
+                    cache.setex(domain, DNS_TTL, address);
                 }
                 pushAnswer(domain, address);
             }
@@ -418,12 +459,8 @@ function serverMessageHandler(buf, rinfo) {
 }
 
 exports.createServer = function(options) {
+    console.log("Starting DNS Proxy...");
     return Server(options);
 };
 
 exports.Server = Server;
-
-/*
-TODO:
-Add a method that runs once every 5 minutes and checks what cache should be removed
-*/
